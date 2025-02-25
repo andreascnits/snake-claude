@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Position } from '../types/game';
+import { Position, GameState, GameMode } from '../types/game';
 import './GameBoard.css';
 
 interface GameBoardProps {
@@ -7,9 +7,18 @@ interface GameBoardProps {
   food: Position;
   gridSize: number;
   gameSpeed: number;
+  gameState: GameState;
+  gameMode: GameMode;
 }
 
-export const GameBoard: React.FC<GameBoardProps> = ({ snake, food, gridSize, gameSpeed }) => {
+export const GameBoard: React.FC<GameBoardProps> = ({ 
+  snake, 
+  food, 
+  gridSize, 
+  gameSpeed,
+  gameState,
+  gameMode
+}) => {
   const [boardSize, setBoardSize] = useState(Math.min(500, window.innerWidth - 40));
   // Calculate transition duration based on game speed
   const transitionDuration = Math.min(gameSpeed * 0.8, 120); // Cap at 120ms for very fast speeds
@@ -41,15 +50,38 @@ export const GameBoard: React.FC<GameBoardProps> = ({ snake, food, gridSize, gam
       const isSnake = snake.some(segment => segment.x === col && segment.y === row);
       const isFood = food.x === col && food.y === row;
       const isHead = snake[0].x === col && snake[0].y === row;
+      
+      // Gun mode specific elements
+      const isBullet = gameMode === GameMode.GUNS && 
+        gameState.bullets.some(bullet => bullet.position.x === col && bullet.position.y === row);
+      const isGunPowerUp = gameMode === GameMode.GUNS && 
+        gameState.gunPowerUp?.active && 
+        gameState.gunPowerUp.position.x === col && 
+        gameState.gunPowerUp.position.y === row;
+      const isTarget = gameMode === GameMode.GUNS &&
+        gameState.targets.some(target => target.active && target.position.x === col && target.position.y === row);
+
+      let cellClass = 'cell';
+      if (isSnake) cellClass += ' snake';
+      if (isHead) cellClass += ' head';
+      if (isFood) cellClass += ' food';
+      if (isBullet) cellClass += ' bullet';
+      if (isGunPowerUp) cellClass += ' gun-powerup';
+      if (isTarget) cellClass += ' target';
+
+      // Add gun indicator to the snake head if it has a gun
+      const hasGun = gameMode === GameMode.GUNS && isHead && gameState.hasGun;
 
       return (
         <div
           key={`${row}-${col}`}
-          className={`cell ${isSnake ? 'snake' : ''} ${isFood ? 'food' : ''} ${isHead ? 'head' : ''}`}
+          className={cellClass}
           style={{
             transition: `background-color ${transitionDuration}ms ease-in-out`,
           }}
-        />
+        >
+          {hasGun && <div className="gun-indicator">🔫</div>}
+        </div>
       );
     })
   );

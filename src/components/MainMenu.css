@@ -67,6 +67,26 @@
   cursor: pointer;
 }
 
+.classic-button {
+  background: #3498db !important;
+}
+
+.classic-button:hover {
+  background: #2980b9 !important;
+}
+
+.guns-button {
+  background: #e74c3c !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.guns-button:hover {
+  background: #c0392b !important;
+}
+
 @media (max-width: 500px) {
   .main-menu {
     padding: 20px;

@@ -105,6 +105,14 @@
   font-style: italic;
 }
 
+.game-mode-hint {
+  font-size: 0.9em;
+  color: #9b59b6;
+  margin-bottom: 10px;
+  font-style: italic;
+  font-weight: bold;
+}
+
 .score, .high-score {
   font-size: 1.2em;
   font-weight: bold;
@@ -216,4 +224,43 @@
   .game-controls-hint {
     font-size: 0.8em;
   }
+}
+
+.shoot-button-container {
+  margin-top: 15px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.shoot-button {
+  padding: 10px 20px;
+  font-size: 1.2em;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.shoot-button:hover:not(:disabled) {
+  background: #c0392b;
+  transform: scale(1.05);
+}
+
+.shoot-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.shoot-button:disabled {
+  background: #7f8c8d;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.ammo {
+  font-size: 1em;
+  color: #e74c3c;
+  font-weight: bold;
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { GameScreen, GameSettings } from './types/game'
+import { GameScreen, GameSettings, GameMode } from './types/game'
 import { useSnakeGame } from './hooks/useSnakeGame'
 import { useGameAudio } from './hooks/useGameAudio'
 import { GameBoard } from './components/GameBoard'
@@ -13,6 +13,7 @@ function App() {
   const [settings, setSettings] = useState<GameSettings>({
     soundEnabled: true,
     wallsEnabled: false,
+    gameMode: GameMode.CLASSIC,
   })
 
   const {
@@ -24,6 +25,7 @@ function App() {
     isActive,
     setIsActive,
     gameSpeed,
+    shoot,
   } = useSnakeGame(settings)
 
   // Initialize audio
@@ -119,6 +121,9 @@ function App() {
               <div className="game-info">
                 <div className="difficulty">Level: {getDifficultyLevel()}</div>
                 <div className="speed">Speed: {Math.round(1000 / gameSpeed)} fps</div>
+                {settings.gameMode === GameMode.GUNS && gameState.hasGun && (
+                  <div className="ammo">Ammo: {gameState.ammo}</div>
+                )}
               </div>
               <button className="pause-button" onClick={togglePause}>
                 {isPaused ? 'Resume' : 'Pause'}
@@ -127,14 +132,32 @@ function App() {
             <div className="game-controls-hint">
               {window.matchMedia('(pointer: coarse)').matches ? 
                 'Swipe to change direction' : 
-                'Use Arrow Keys or WASD to move'}
+                `Use Arrow Keys or WASD to move${settings.gameMode === GameMode.GUNS ? ', F to shoot' : ''}`}
             </div>
+            {settings.gameMode === GameMode.GUNS && (
+              <div className="game-mode-hint">
+                Collect gun power-ups 🔫 and shoot targets ✚ for extra points!
+              </div>
+            )}
             <GameBoard
               snake={gameState.snake}
               food={gameState.food}
               gridSize={GRID_SIZE}
               gameSpeed={gameSpeed}
+              gameState={gameState}
+              gameMode={settings.gameMode}
             />
+            {settings.gameMode === GameMode.GUNS && (
+              <div className="shoot-button-container">
+                <button 
+                  className="shoot-button" 
+                  onClick={() => gameState.hasGun && shoot && shoot()}
+                  disabled={!gameState.hasGun || gameState.ammo <= 0}
+                >
+                  SHOOT 🔫
+                </button>
+              </div>
+            )}
             {isPaused && (
               <div className="pause-overlay">
                 <h2>Paused</h2>

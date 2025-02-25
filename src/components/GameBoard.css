@@ -56,6 +56,60 @@
   animation: pulse 1s infinite;
 }
 
+/* Gun mode styles */
+.cell.bullet {
+  background: #f39c12;
+  border-radius: 50%;
+  box-shadow: 0 0 15px rgba(243, 156, 18, 0.9);
+  animation: bullet-pulse 0.5s infinite;
+}
+
+.cell.gun-powerup {
+  background: #9b59b6;
+  border-radius: 4px;
+  box-shadow: 0 0 12px rgba(155, 89, 182, 0.8);
+  animation: gun-pulse 1.5s infinite;
+}
+
+.gun-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  z-index: 2;
+}
+
+@keyframes bullet-pulse {
+  0% {
+    transform: scale(0.8);
+    box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 5px rgba(243, 156, 18, 0);
+  }
+  100% {
+    transform: scale(0.8);
+    box-shadow: 0 0 0 0 rgba(243, 156, 18, 0);
+  }
+}
+
+@keyframes gun-pulse {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(155, 89, 182, 0.7);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 8px rgba(155, 89, 182, 0);
+  }
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(155, 89, 182, 0);
+  }
+}
+
 @keyframes pulse {
   0% {
     transform: scale(0.95);
@@ -69,4 +123,32 @@
     transform: scale(0.95);
     box-shadow: 0 0 0 0 rgba(231, 76, 60, 0);
   }
+}
+
+.cell.target {
+  background: #8e44ad;
+  border-radius: 0;
+  box-shadow: 0 0 10px rgba(142, 68, 173, 0.7);
+  position: relative;
+}
+
+.cell.target::before,
+.cell.target::after {
+  content: '';
+  position: absolute;
+  background: #34495e;
+}
+
+.cell.target::before {
+  top: 20%;
+  left: 45%;
+  width: 10%;
+  height: 60%;
+}
+
+.cell.target::after {
+  top: 45%;
+  left: 20%;
+  width: 60%;
+  height: 10%;
 } 

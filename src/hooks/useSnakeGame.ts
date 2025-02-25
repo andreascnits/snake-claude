@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Direction, Position, GameState, GameSettings } from '../types/game';
+import { Direction, Position, GameState, GameSettings, GameMode, Bullet, GunPowerUp, Target } from '../types/game';
 
 const GRID_SIZE = 20;
 const INITIAL_SNAKE: Position[] = [
@@ -11,18 +11,33 @@ const INITIAL_SNAKE: Position[] = [
 const INITIAL_STATE: GameState = {
   snake: INITIAL_SNAKE,
   food: { x: 5, y: 5 },
-  direction: 'UP',
+  direction: Direction.UP,
   isGameOver: false,
   score: 0,
   highScore: parseInt(localStorage.getItem('snakeHighScore') || '0'),
+  // Gun-related properties
+  hasGun: false,
+  ammo: 0,
+  bullets: [],
+  gunPowerUp: null,
+  targets: [],
 };
+
+// Gun settings
+const GUN_SPAWN_CHANCE = 0.2; // 20% chance to spawn a gun power-up when food is eaten
+const BULLET_SPEED = 2; // Bullets move 2x faster than the snake
+const MAX_AMMO = 5; // Maximum ammo per gun power-up
+const TARGET_SPAWN_CHANCE = 0.3; // 30% chance to spawn a target when food is eaten
+const TARGET_HEALTH = 1; // Health points for targets
+const TARGET_POINTS = 20; // Score points for destroying a target
+const MAX_TARGETS = 5; // Maximum number of targets on screen at once
 
 // Map of opposite directions
 const OPPOSITE_DIRECTIONS: Record<Direction, Direction> = {
-  UP: 'DOWN',
-  DOWN: 'UP',
-  LEFT: 'RIGHT',
-  RIGHT: 'LEFT',
+  [Direction.UP]: Direction.DOWN,
+  [Direction.DOWN]: Direction.UP,
+  [Direction.LEFT]: Direction.RIGHT,
+  [Direction.RIGHT]: Direction.LEFT,
 };
 
 // Base speed in milliseconds (lower = faster)
@@ -33,7 +48,10 @@ const SPEED_INCREMENT = 3;
 const MIN_SPEED = 70;
 
 export const useSnakeGame = (settings: GameSettings) => {
-  const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
+  const [gameState, setGameState] = useState<GameState>({
+    ...INITIAL_STATE,
+    highScore: parseInt(localStorage.getItem('snakeHighScore') || '0'),
+  });
   const [isPaused, setIsPaused] = useState(false);
   // Track if the game is currently active (being played)
   const [isActive, setIsActive] = useState(false);
@@ -49,6 +67,8 @@ export const useSnakeGame = (settings: GameSettings) => {
   const [gameSpeed, setGameSpeed] = useState(BASE_SPEED);
   // Store the moveSnake function in a ref to avoid dependency issues
   const moveSnakeRef = useRef<() => void>(() => {});
+  // Store the bullet loop interval ID
+  const bulletLoopRef = useRef<number | null>(null);
 
   const generateFood = useCallback((): Position => {
     let newFood: Position;
@@ -118,6 +138,173 @@ export const useSnakeGame = (settings: GameSettings) => {
     return Math.max(MIN_SPEED, BASE_SPEED - speedReduction);
   }, []);
 
+  // Generate a gun power-up at a random position
+  const generateGunPowerUp = useCallback((): GunPowerUp | null => {
+    // Only generate a gun power-up in GUNS mode with a certain probability
+    if (settings.gameMode !== GameMode.GUNS || Math.random() > GUN_SPAWN_CHANCE) {
+      return null;
+    }
+
+    let position: Position;
+    do {
+      position = {
+        x: Math.floor(Math.random() * GRID_SIZE),
+        y: Math.floor(Math.random() * GRID_SIZE),
+      };
+    } while (
+      gameState.snake.some(segment => segment.x === position.x && segment.y === position.y) ||
+      (gameState.food.x === position.x && gameState.food.y === position.y)
+    );
+
+    return {
+      position,
+      active: true,
+      ammo: MAX_AMMO
+    };
+  }, [gameState.snake, gameState.food, settings.gameMode]);
+
+  // Generate a target at a random position
+  const generateTarget = useCallback((): Target | null => {
+    // Only generate a target in GUNS mode with a certain probability
+    // Also limit the number of targets on screen
+    if (
+      settings.gameMode !== GameMode.GUNS || 
+      Math.random() > TARGET_SPAWN_CHANCE ||
+      gameState.targets.filter(t => t.active).length >= MAX_TARGETS
+    ) {
+      return null;
+    }
+
+    let position: Position;
+    do {
+      position = {
+        x: Math.floor(Math.random() * GRID_SIZE),
+        y: Math.floor(Math.random() * GRID_SIZE),
+      };
+    } while (
+      gameState.snake.some(segment => segment.x === position.x && segment.y === position.y) ||
+      (gameState.food.x === position.x && gameState.food.y === position.y) ||
+      (gameState.gunPowerUp?.position.x === position.x && gameState.gunPowerUp?.position.y === position.y) ||
+      gameState.targets.some(target => target.active && target.position.x === position.x && target.position.y === position.y)
+    );
+
+    return {
+      position,
+      active: true,
+      health: TARGET_HEALTH,
+      points: TARGET_POINTS
+    };
+  }, [gameState.snake, gameState.food, gameState.gunPowerUp, gameState.targets, settings.gameMode]);
+
+  // Handle shooting
+  const shoot = useCallback(() => {
+    if (!gameState.hasGun || gameState.ammo <= 0 || gameState.isGameOver || isPaused) return;
+
+    const head = gameState.snake[0];
+    const newBullet: Bullet = {
+      position: { ...head },
+      direction: gameState.direction,
+      active: true
+    };
+
+    setGameState(prev => ({
+      ...prev,
+      bullets: [...prev.bullets, newBullet],
+      ammo: prev.ammo - 1,
+      // If no ammo left, remove the gun
+      hasGun: prev.ammo > 1
+    }));
+  }, [gameState.hasGun, gameState.ammo, gameState.isGameOver, gameState.direction, gameState.snake, isPaused]);
+
+  // Move bullets and check for collisions
+  const moveBullets = useCallback(() => {
+    if (gameState.isGameOver || isPaused || settings.gameMode !== GameMode.GUNS) return;
+
+    setGameState(prev => {
+      let updatedBullets = [...prev.bullets];
+      let updatedTargets = [...prev.targets];
+      let additionalScore = 0;
+
+      // Process each bullet
+      updatedBullets = updatedBullets
+        .map(bullet => {
+          if (!bullet.active) return bullet;
+
+          let newPosition = { ...bullet.position };
+          
+          // Move bullet based on direction
+          switch (bullet.direction) {
+            case Direction.UP:
+              newPosition.y -= 1;
+              break;
+            case Direction.DOWN:
+              newPosition.y += 1;
+              break;
+            case Direction.LEFT:
+              newPosition.x -= 1;
+              break;
+            case Direction.RIGHT:
+              newPosition.x += 1;
+              break;
+          }
+
+          // Always check for wall collisions (bullets can't pass through walls)
+          if (
+            newPosition.x < 0 ||
+            newPosition.x >= GRID_SIZE ||
+            newPosition.y < 0 ||
+            newPosition.y >= GRID_SIZE
+          ) {
+            return { ...bullet, active: false };
+          }
+
+          // Check for collisions with targets
+          const hitTargetIndex = updatedTargets.findIndex(
+            target => target.active && target.position.x === newPosition.x && target.position.y === newPosition.y
+          );
+
+          if (hitTargetIndex >= 0) {
+            // Bullet hit a target
+            const target = updatedTargets[hitTargetIndex];
+            
+            // Reduce target health
+            const newHealth = target.health - 1;
+            
+            if (newHealth <= 0) {
+              // Target destroyed
+              updatedTargets[hitTargetIndex] = { ...target, active: false };
+              additionalScore += target.points;
+            } else {
+              // Target damaged but not destroyed
+              updatedTargets[hitTargetIndex] = { ...target, health: newHealth };
+            }
+            
+            // Bullet is consumed
+            return { ...bullet, active: false };
+          }
+
+          // Check for collision with snake (except head)
+          const hitSnake = prev.snake.some(
+            (segment, index) => index > 0 && segment.x === newPosition.x && segment.y === newPosition.y
+          );
+
+          if (hitSnake) {
+            return { ...bullet, active: false };
+          }
+
+          return { ...bullet, position: newPosition };
+        })
+        .filter(bullet => bullet.active); // Remove inactive bullets
+
+      return { 
+        ...prev, 
+        bullets: updatedBullets,
+        targets: updatedTargets,
+        score: prev.score + additionalScore
+      };
+    });
+  }, [gameState.isGameOver, isPaused, settings.gameMode]);
+
   // Define moveSnake function
   const moveSnake = useCallback(() => {
     if (gameState.isGameOver || isPaused) return;
@@ -130,16 +317,16 @@ export const useSnakeGame = (settings: GameSettings) => {
 
     // Calculate new head position
     switch (gameState.direction) {
-      case 'UP':
+      case Direction.UP:
         head.y -= 1;
         break;
-      case 'DOWN':
+      case Direction.DOWN:
         head.y += 1;
         break;
-      case 'LEFT':
+      case Direction.LEFT:
         head.x -= 1;
         break;
-      case 'RIGHT':
+      case Direction.RIGHT:
         head.x += 1;
         break;
     }
@@ -167,6 +354,12 @@ export const useSnakeGame = (settings: GameSettings) => {
     // Check if food is eaten
     const isFoodEaten = head.x === gameState.food.x && head.y === gameState.food.y;
 
+    // Check if gun power-up is collected
+    let isGunCollected = false;
+    if (settings.gameMode === GameMode.GUNS && gameState.gunPowerUp && gameState.gunPowerUp.active) {
+      isGunCollected = head.x === gameState.gunPowerUp.position.x && head.y === gameState.gunPowerUp.position.y;
+    }
+
     newSnake.unshift(head);
     if (!isFoodEaten) {
       newSnake.pop();
@@ -174,20 +367,41 @@ export const useSnakeGame = (settings: GameSettings) => {
 
     const newScore = isFoodEaten ? gameState.score + 10 : gameState.score;
 
+    // Generate a new gun power-up if food is eaten (with a chance)
+    const newGunPowerUp = isFoodEaten ? generateGunPowerUp() : gameState.gunPowerUp;
+    
+    // Generate a new target if food is eaten (with a chance)
+    const newTarget = isFoodEaten ? generateTarget() : null;
+    
     // Update game state
-    setGameState((prev) => ({
-      ...prev,
-      snake: newSnake,
-      food: isFoodEaten ? generateFood() : prev.food,
-      score: newScore,
-    }));
+    setGameState((prev) => {
+      // Create updated targets array
+      const updatedTargets = [...prev.targets];
+      if (newTarget) {
+        updatedTargets.push(newTarget);
+      }
+
+      return {
+        ...prev,
+        snake: newSnake,
+        food: isFoodEaten ? generateFood() : prev.food,
+        score: newScore,
+        // Update gun-related state if in GUNS mode
+        hasGun: settings.gameMode === GameMode.GUNS ? 
+          (isGunCollected ? true : prev.hasGun) : false,
+        ammo: settings.gameMode === GameMode.GUNS ? 
+          (isGunCollected ? (prev.ammo + (gameState.gunPowerUp?.ammo || 0)) : prev.ammo) : 0,
+        gunPowerUp: isGunCollected ? null : newGunPowerUp,
+        targets: updatedTargets,
+      };
+    });
 
     // Update game speed if food was eaten
     if (isFoodEaten) {
       const newSpeed = calculateGameSpeed(newScore);
       setGameSpeed(newSpeed);
     }
-  }, [gameState, isPaused, settings.wallsEnabled, checkCollision, generateFood, processNextDirection, calculateGameSpeed]);
+  }, [gameState, isPaused, settings.wallsEnabled, settings.gameMode, checkCollision, generateFood, processNextDirection, calculateGameSpeed, generateGunPowerUp, generateTarget]);
 
   // Update moveSnakeRef whenever moveSnake changes
   useEffect(() => {
@@ -272,16 +486,16 @@ export const useSnakeGame = (settings: GameSettings) => {
     if (Math.abs(dx) > Math.abs(dy)) {
       // Horizontal swipe
       if (dx > 30) {
-        changeDirection('RIGHT');
+        changeDirection(Direction.RIGHT);
       } else if (dx < -30) {
-        changeDirection('LEFT');
+        changeDirection(Direction.LEFT);
       }
     } else {
       // Vertical swipe
       if (dy > 30) {
-        changeDirection('DOWN');
+        changeDirection(Direction.DOWN);
       } else if (dy < -30) {
-        changeDirection('UP');
+        changeDirection(Direction.UP);
       }
     }
     
@@ -319,19 +533,19 @@ export const useSnakeGame = (settings: GameSettings) => {
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault(); // Prevent page scrolling
-          changeDirection('UP');
+          changeDirection(Direction.UP);
           break;
         case 'ArrowDown':
           e.preventDefault(); // Prevent page scrolling
-          changeDirection('DOWN');
+          changeDirection(Direction.DOWN);
           break;
         case 'ArrowLeft':
           e.preventDefault(); // Prevent page scrolling
-          changeDirection('LEFT');
+          changeDirection(Direction.LEFT);
           break;
         case 'ArrowRight':
           e.preventDefault(); // Prevent page scrolling
-          changeDirection('RIGHT');
+          changeDirection(Direction.RIGHT);
           break;
         case ' ':
           e.preventDefault(); // Prevent page scrolling/jumping
@@ -340,19 +554,19 @@ export const useSnakeGame = (settings: GameSettings) => {
         // WASD controls for alternative input
         case 'w':
         case 'W':
-          changeDirection('UP');
+          changeDirection(Direction.UP);
           break;
         case 's':
         case 'S':
-          changeDirection('DOWN');
+          changeDirection(Direction.DOWN);
           break;
         case 'a':
         case 'A':
-          changeDirection('LEFT');
+          changeDirection(Direction.LEFT);
           break;
         case 'd':
         case 'D':
-          changeDirection('RIGHT');
+          changeDirection(Direction.RIGHT);
           break;
       }
     };
@@ -374,6 +588,51 @@ export const useSnakeGame = (settings: GameSettings) => {
     };
   }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
 
+  // Set up bullet movement loop
+  useEffect(() => {
+    if (settings.gameMode !== GameMode.GUNS) return;
+
+    const startBulletLoop = () => {
+      if (bulletLoopRef.current) {
+        clearInterval(bulletLoopRef.current);
+      }
+      
+      if (isActive && !isPaused) {
+        // Bullets move faster than the snake
+        bulletLoopRef.current = window.setInterval(() => {
+          moveBullets();
+        }, gameSpeed / BULLET_SPEED);
+      }
+    };
+
+    startBulletLoop();
+    
+    return () => {
+      if (bulletLoopRef.current) {
+        clearInterval(bulletLoopRef.current);
+        bulletLoopRef.current = null;
+      }
+    };
+  }, [isActive, isPaused, gameSpeed, settings.gameMode, moveBullets]);
+
+  // Set up keyboard controls for shooting
+  useEffect(() => {
+    if (settings.gameMode !== GameMode.GUNS) return;
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Only process key events if the game is active, not over, and has a gun
+      if (gameState.isGameOver || !isActive || !gameState.hasGun) return;
+      
+      if (e.key === 'f' || e.key === 'F' || e.key === ' ') {
+        e.preventDefault(); // Prevent page scrolling/jumping
+        shoot();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [gameState.isGameOver, isActive, gameState.hasGun, settings.gameMode, shoot]);
+
   return {
     gameState,
     isPaused,
@@ -385,5 +644,7 @@ export const useSnakeGame = (settings: GameSettings) => {
     setIsActive,
     // Export current game speed for UI feedback
     gameSpeed,
+    // Export shoot function for UI controls
+    shoot: settings.gameMode === GameMode.GUNS ? shoot : undefined,
   };
 }; 
