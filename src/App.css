@@ -48,6 +48,7 @@
   min-height: 100vh;
   background: #1a1a1a;
   padding: 20px;
+  box-sizing: border-box;
 }
 
 .game-container {
@@ -55,17 +56,53 @@
   flex-direction: column;
   gap: 20px;
   align-items: center;
+  width: 100%;
+  max-width: 500px;
 }
 
 .game-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  width: 500px;
+  width: 100%;
   padding: 10px;
   background: #2c3e50;
   border-radius: 8px;
   color: white;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.score-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.game-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.difficulty {
+  font-size: 1em;
+  font-weight: bold;
+  color: #e74c3c;
+}
+
+.speed {
+  font-size: 0.9em;
+  color: #f39c12;
+}
+
+.game-controls-hint {
+  font-size: 0.9em;
+  color: #7f8c8d;
+  margin-bottom: -10px;
+  font-style: italic;
 }
 
 .score, .high-score {
@@ -110,6 +147,12 @@
   gap: 20px;
   color: white;
   z-index: 100;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .pause-overlay h2 {
@@ -126,11 +169,16 @@
   background: #2ecc71;
   color: white;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.1s ease;
 }
 
 .pause-overlay button:hover {
   background: #27ae60;
+  transform: scale(1.05);
+}
+
+.pause-overlay button:active {
+  transform: scale(0.98);
 }
 
 .pause-overlay button:last-child {
@@ -139,4 +187,33 @@
 
 .pause-overlay button:last-child:hover {
   background: #c0392b;
+}
+
+@media (max-width: 600px) {
+  .game-header {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .score-container {
+    align-items: center;
+  }
+  
+  #root {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 400px) {
+  #root {
+    padding: 0.5rem;
+  }
+  
+  .game-container {
+    gap: 10px;
+  }
+  
+  .game-controls-hint {
+    font-size: 0.8em;
+  }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Direction, Position, GameState, GameSettings } from '../types/game';
 
 const GRID_SIZE = 20;
@@ -17,9 +17,38 @@ const INITIAL_STATE: GameState = {
   highScore: parseInt(localStorage.getItem('snakeHighScore') || '0'),
 };
 
+// Map of opposite directions
+const OPPOSITE_DIRECTIONS: Record<Direction, Direction> = {
+  UP: 'DOWN',
+  DOWN: 'UP',
+  LEFT: 'RIGHT',
+  RIGHT: 'LEFT',
+};
+
+// Base speed in milliseconds (lower = faster)
+const BASE_SPEED = 150;
+// How much to decrease the interval per 10 points (making game faster)
+const SPEED_INCREMENT = 3;
+// Minimum speed the game can reach
+const MIN_SPEED = 70;
+
 export const useSnakeGame = (settings: GameSettings) => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [isPaused, setIsPaused] = useState(false);
+  // Track if the game is currently active (being played)
+  const [isActive, setIsActive] = useState(false);
+  // Input queue to store pending direction changes
+  const directionQueue = useRef<Direction[]>([]);
+  // Track the last processed direction to prevent invalid moves
+  const lastProcessedDirection = useRef<Direction>(INITIAL_STATE.direction);
+  // Store the game loop interval ID for dynamic speed adjustment
+  const gameLoopRef = useRef<number | null>(null);
+  // Track touch start position for swipe detection
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Current game speed
+  const [gameSpeed, setGameSpeed] = useState(BASE_SPEED);
+  // Store the moveSnake function in a ref to avoid dependency issues
+  const moveSnakeRef = useRef<() => void>(() => {});
 
   const generateFood = useCallback((): Position => {
     let newFood: Position;
@@ -62,8 +91,39 @@ export const useSnakeGame = (settings: GameSettings) => {
     [gameState.snake, settings.wallsEnabled]
   );
 
+  // Process the next valid direction from the queue
+  const processNextDirection = useCallback(() => {
+    if (directionQueue.current.length === 0) return;
+    
+    // Get the next direction from the queue
+    const nextDirection = directionQueue.current[0];
+    
+    // Check if the direction is valid (not opposite to the last processed direction)
+    if (OPPOSITE_DIRECTIONS[nextDirection] !== lastProcessedDirection.current) {
+      // Update the game state with the new direction
+      setGameState(prev => ({ ...prev, direction: nextDirection }));
+      // Update the last processed direction
+      lastProcessedDirection.current = nextDirection;
+    }
+    
+    // Remove the processed direction from the queue
+    directionQueue.current.shift();
+  }, []);
+
+  // Calculate game speed based on score
+  const calculateGameSpeed = useCallback((score: number) => {
+    // Decrease interval (increase speed) as score increases
+    // Using a more gradual curve for speed increase
+    const speedReduction = Math.floor(score / 15) * SPEED_INCREMENT; // Changed from 10 to 15 points per speed increase
+    return Math.max(MIN_SPEED, BASE_SPEED - speedReduction);
+  }, []);
+
+  // Define moveSnake function
   const moveSnake = useCallback(() => {
     if (gameState.isGameOver || isPaused) return;
+
+    // Process the next direction from the queue before moving
+    processNextDirection();
 
     const newSnake = [...gameState.snake];
     const head = { ...newSnake[0] };
@@ -112,29 +172,122 @@ export const useSnakeGame = (settings: GameSettings) => {
       newSnake.pop();
     }
 
+    const newScore = isFoodEaten ? gameState.score + 10 : gameState.score;
+
+    // Update game state
     setGameState((prev) => ({
       ...prev,
       snake: newSnake,
       food: isFoodEaten ? generateFood() : prev.food,
-      score: isFoodEaten ? prev.score + 10 : prev.score,
+      score: newScore,
     }));
-  }, [gameState, isPaused, settings.wallsEnabled, checkCollision, generateFood]);
+
+    // Update game speed if food was eaten
+    if (isFoodEaten) {
+      const newSpeed = calculateGameSpeed(newScore);
+      setGameSpeed(newSpeed);
+    }
+  }, [gameState, isPaused, settings.wallsEnabled, checkCollision, generateFood, processNextDirection, calculateGameSpeed]);
+
+  // Update moveSnakeRef whenever moveSnake changes
+  useEffect(() => {
+    moveSnakeRef.current = moveSnake;
+  }, [moveSnake]);
+
+  // Start/stop game loop based on active and paused states
+  useEffect(() => {
+    const startGameLoop = () => {
+      if (gameLoopRef.current) {
+        clearInterval(gameLoopRef.current);
+      }
+      
+      if (isActive && !isPaused) {
+        gameLoopRef.current = window.setInterval(() => {
+          moveSnakeRef.current();
+        }, gameSpeed);
+      }
+    };
+
+    startGameLoop();
+    
+    return () => {
+      if (gameLoopRef.current) {
+        clearInterval(gameLoopRef.current);
+        gameLoopRef.current = null;
+      }
+    };
+  }, [isActive, isPaused, gameSpeed]);
 
   const changeDirection = useCallback(
     (newDirection: Direction) => {
-      const opposites = {
-        UP: 'DOWN',
-        DOWN: 'UP',
-        LEFT: 'RIGHT',
-        RIGHT: 'LEFT',
-      };
-
-      if (opposites[newDirection] !== gameState.direction) {
-        setGameState((prev) => ({ ...prev, direction: newDirection }));
+      // Don't add the direction if it's the same as the last one in the queue
+      const lastQueuedDirection = directionQueue.current.length > 0 
+        ? directionQueue.current[directionQueue.current.length - 1] 
+        : gameState.direction;
+      
+      // Don't add opposite directions to the last queued direction
+      if (OPPOSITE_DIRECTIONS[newDirection] !== lastQueuedDirection) {
+        // Add the new direction to the queue
+        directionQueue.current.push(newDirection);
+        
+        // Limit queue size to prevent memory issues
+        if (directionQueue.current.length > 3) {
+          directionQueue.current = directionQueue.current.slice(-3);
+        }
       }
     },
     [gameState.direction]
   );
+
+  // Handle touch/swipe controls
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    if (gameState.isGameOver || !isActive || isPaused) return;
+    
+    // Store the starting touch position
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY
+    };
+  }, [gameState.isGameOver, isActive, isPaused]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    // Prevent scrolling when swiping during gameplay
+    if (isActive && !isPaused) {
+      e.preventDefault();
+    }
+  }, [isActive, isPaused]);
+
+  const handleTouchEnd = useCallback((e: TouchEvent) => {
+    if (gameState.isGameOver || !isActive || isPaused || !touchStartRef.current) return;
+    
+    const touchEnd = {
+      x: e.changedTouches[0].clientX,
+      y: e.changedTouches[0].clientY
+    };
+    
+    const dx = touchEnd.x - touchStartRef.current.x;
+    const dy = touchEnd.y - touchStartRef.current.y;
+    
+    // Determine if the swipe was horizontal or vertical
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // Horizontal swipe
+      if (dx > 30) {
+        changeDirection('RIGHT');
+      } else if (dx < -30) {
+        changeDirection('LEFT');
+      }
+    } else {
+      // Vertical swipe
+      if (dy > 30) {
+        changeDirection('DOWN');
+      } else if (dy < -30) {
+        changeDirection('UP');
+      }
+    }
+    
+    // Reset touch start position
+    touchStartRef.current = null;
+  }, [gameState.isGameOver, isActive, isPaused, changeDirection]);
 
   const resetGame = useCallback(() => {
     setGameState({
@@ -142,6 +295,13 @@ export const useSnakeGame = (settings: GameSettings) => {
       highScore: parseInt(localStorage.getItem('snakeHighScore') || '0'),
     });
     setIsPaused(false);
+    // Reset the direction queue and last processed direction
+    directionQueue.current = [];
+    lastProcessedDirection.current = INITIAL_STATE.direction;
+    // Reset game speed
+    setGameSpeed(BASE_SPEED);
+    // Activate the game when reset/started
+    setIsActive(true);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -150,37 +310,69 @@ export const useSnakeGame = (settings: GameSettings) => {
     }
   }, [gameState.isGameOver]);
 
+  // Set up keyboard controls
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (gameState.isGameOver) return;
+      // Only process key events if the game is active and not over
+      if (gameState.isGameOver || !isActive) return;
       
       switch (e.key) {
         case 'ArrowUp':
+          e.preventDefault(); // Prevent page scrolling
           changeDirection('UP');
           break;
         case 'ArrowDown':
+          e.preventDefault(); // Prevent page scrolling
           changeDirection('DOWN');
           break;
         case 'ArrowLeft':
+          e.preventDefault(); // Prevent page scrolling
           changeDirection('LEFT');
           break;
         case 'ArrowRight':
+          e.preventDefault(); // Prevent page scrolling
           changeDirection('RIGHT');
           break;
         case ' ':
+          e.preventDefault(); // Prevent page scrolling/jumping
           togglePause();
+          break;
+        // WASD controls for alternative input
+        case 'w':
+        case 'W':
+          changeDirection('UP');
+          break;
+        case 's':
+        case 'S':
+          changeDirection('DOWN');
+          break;
+        case 'a':
+        case 'A':
+          changeDirection('LEFT');
+          break;
+        case 'd':
+        case 'D':
+          changeDirection('RIGHT');
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [changeDirection, togglePause, gameState.isGameOver]);
+  }, [changeDirection, togglePause, gameState.isGameOver, isActive]);
 
+  // Set up touch controls
   useEffect(() => {
-    const gameLoop = setInterval(moveSnake, 150);
-    return () => clearInterval(gameLoop);
-  }, [moveSnake]);
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
 
   return {
     gameState,
@@ -188,5 +380,10 @@ export const useSnakeGame = (settings: GameSettings) => {
     resetGame,
     togglePause,
     GRID_SIZE,
+    // Export isActive state and setter for external control
+    isActive,
+    setIsActive,
+    // Export current game speed for UI feedback
+    gameSpeed,
   };
 }; 

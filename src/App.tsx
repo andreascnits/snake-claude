@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { GameScreen, GameSettings } from './types/game'
 import { useSnakeGame } from './hooks/useSnakeGame'
 import { useGameAudio } from './hooks/useGameAudio'
@@ -21,18 +21,33 @@ function App() {
     resetGame,
     togglePause,
     GRID_SIZE,
+    isActive,
+    setIsActive,
+    gameSpeed,
   } = useSnakeGame(settings)
 
   // Initialize audio
-  useGameAudio(settings.soundEnabled);
+  const { initializeAudio } = useGameAudio(settings.soundEnabled);
+
+  // Update game active state based on current screen
+  useEffect(() => {
+    // Only set the game to active when on the GAME screen
+    if (currentScreen === GameScreen.GAME) {
+      setIsActive(true);
+    } else {
+      setIsActive(false);
+    }
+  }, [currentScreen, setIsActive]);
 
   useEffect(() => {
-    if (gameState.isGameOver) {
+    if (gameState.isGameOver && isActive) {
       setCurrentScreen(GameScreen.GAME_OVER)
     }
-  }, [gameState.isGameOver])
+  }, [gameState.isGameOver, isActive])
 
   const handleStartGame = () => {
+    // Initialize audio when user starts the game
+    initializeAudio();
     resetGame();
     setCurrentScreen(GameScreen.GAME);
   };
@@ -41,6 +56,32 @@ function App() {
     resetGame()
     setCurrentScreen(GameScreen.GAME)
   }
+
+  // Calculate difficulty level based on game speed
+  const getDifficultyLevel = () => {
+    if (gameSpeed <= 80) return 'Expert';
+    if (gameSpeed <= 110) return 'Hard';
+    if (gameSpeed <= 130) return 'Medium';
+    return 'Easy';
+  }
+
+  // Handle any user interaction to initialize audio
+  const handleUserInteraction = useCallback(() => {
+    initializeAudio();
+  }, [initializeAudio]);
+
+  useEffect(() => {
+    // Add event listeners for user interaction
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('keydown', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, [handleUserInteraction]);
 
   const renderCurrentScreen = () => {
     switch (currentScreen) {
@@ -71,16 +112,28 @@ function App() {
         return (
           <div className="game-container">
             <div className="game-header">
-              <div className="score">Score: {gameState.score}</div>
-              <div className="high-score">High Score: {gameState.highScore}</div>
+              <div className="score-container">
+                <div className="score">Score: {gameState.score}</div>
+                <div className="high-score">High Score: {gameState.highScore}</div>
+              </div>
+              <div className="game-info">
+                <div className="difficulty">Level: {getDifficultyLevel()}</div>
+                <div className="speed">Speed: {Math.round(1000 / gameSpeed)} fps</div>
+              </div>
               <button className="pause-button" onClick={togglePause}>
                 {isPaused ? 'Resume' : 'Pause'}
               </button>
+            </div>
+            <div className="game-controls-hint">
+              {window.matchMedia('(pointer: coarse)').matches ? 
+                'Swipe to change direction' : 
+                'Use Arrow Keys or WASD to move'}
             </div>
             <GameBoard
               snake={gameState.snake}
               food={gameState.food}
               gridSize={GRID_SIZE}
+              gameSpeed={gameSpeed}
             />
             {isPaused && (
               <div className="pause-overlay">
