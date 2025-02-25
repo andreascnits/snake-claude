@@ -1,0 +1,66 @@
+.options-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+  padding: 40px;
+  background: #2c3e50;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+  color: white;
+  min-width: 300px;
+}
+
+.options-screen h2 {
+  font-size: 2em;
+  margin: 0;
+  color: #3498db;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.option-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: #34495e;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.option-item:hover {
+  background: #2c3e50;
+}
+
+.option-item span {
+  font-size: 1.1em;
+}
+
+.option-item input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.back-button {
+  padding: 12px 24px;
+  font-size: 1.1em;
+  border: none;
+  border-radius: 5px;
+  background: #e74c3c;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.back-button:hover {
+  background: #c0392b;
+} 
