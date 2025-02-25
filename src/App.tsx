@@ -12,7 +12,7 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState<GameScreen>(GameScreen.MENU)
   const [settings, setSettings] = useState<GameSettings>({
     soundEnabled: true,
-    wallsEnabled: true,
+    wallsEnabled: false,
   })
 
   const {
